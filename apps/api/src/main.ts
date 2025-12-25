@@ -9,9 +9,15 @@ async function bootstrap() {
   const configService = app.get(ConfigService);
   const port = configService.get<number>('port', 3100);
 
+  const corsOrigin = configService.get<string>('corsOrigin', 'http://localhost:3200');
+  const originList = corsOrigin
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: configService.get<string>('corsOrigin', 'http://localhost:3200'),
-    credentials: true,
+    origin: corsOrigin === '*' ? '*' : originList,
+    credentials: corsOrigin !== '*',
   });
 
   app.useGlobalPipes(
