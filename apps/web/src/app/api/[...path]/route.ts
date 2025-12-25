@@ -7,7 +7,26 @@ const rawApiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'htt
 const normalizedApiUrl = rawApiUrl.startsWith('http://') || rawApiUrl.startsWith('https://')
   ? rawApiUrl
   : `https://${rawApiUrl}`;
-const apiBase = normalizedApiUrl.replace(/\/+$/, '').replace(/\/api$/, '');
+
+function normalizeApiBase(value: string): string {
+  const url = new URL(value);
+  const hostname = url.hostname;
+
+  if (hostname.endsWith('.railway.internal')) {
+    url.protocol = 'http:';
+    if (!url.port) {
+      url.port = '8080';
+    }
+  } else if (hostname.endsWith('.up.railway.app') || hostname.endsWith('.railway.app')) {
+    url.protocol = 'https:';
+    url.port = '';
+  }
+
+  url.pathname = url.pathname.replace(/\/+$/, '').replace(/\/api$/, '');
+  return url.toString().replace(/\/+$/, '');
+}
+
+const apiBase = normalizeApiBase(normalizedApiUrl);
 
 async function proxyRequest(
   req: NextRequest,
