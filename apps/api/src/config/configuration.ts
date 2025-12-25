@@ -31,7 +31,7 @@ export default () => {
     : false;
 
   return {
-    port: parseInt(process.env.PORT || '3100', 10),
+    port: parseInt(process.env.PORT || '8080', 10),
     nodeEnv: process.env.NODE_ENV || 'development',
     isProduction,
     corsOrigin: process.env.CORS_ORIGIN || (isProduction ? '*' : 'http://localhost:3200'),
