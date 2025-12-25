@@ -1,8 +1,10 @@
 FROM node:20-alpine AS base
 
-# Install OpenSSL for Prisma and Claude CLI
-RUN apk add --no-cache openssl \
-  && npm install -g @anthropic-ai/claude-cli
+# Install OpenSSL for Prisma
+RUN apk add --no-cache openssl
+
+# Optional Claude CLI install (continues if install fails)
+RUN npm install -g @anthropic-ai/claude-cli || echo "Claude CLI install failed; continuing without CLI"
 
 # Install dependencies only when needed
 FROM base AS deps
