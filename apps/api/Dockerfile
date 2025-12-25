@@ -46,9 +46,9 @@ COPY --from=builder /app/prisma ./prisma
 USER nestjs
 
 # Railway assigns PORT automatically
-EXPOSE 3001
+EXPOSE 8080
 
-ENV PORT=3001
+ENV PORT=8080
 
 # Health check for Railway
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \

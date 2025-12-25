@@ -7,7 +7,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   const configService = app.get(ConfigService);
-  const port = configService.get<number>('port', 3100);
+  const port = configService.get<number>('port', 8080);
 
   const corsOrigin = configService.get<string>('corsOrigin', 'http://localhost:3200');
   const originList = corsOrigin
