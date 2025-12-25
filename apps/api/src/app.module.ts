@@ -42,8 +42,8 @@ import configuration from './config/configuration';
           tls: redisConfig?.tls,
           maxRetriesPerRequest: null,
           enableReadyCheck: false,
-          lazyConnect: true,
-          enableOfflineQueue: false,
+          lazyConnect: false,
+          enableOfflineQueue: true,
           connectTimeout: 5000,
           retryStrategy: (times: number) => Math.min(times * 1000, 30000),
         };
