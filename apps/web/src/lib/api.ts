@@ -10,15 +10,8 @@ import type {
   FinancialsResponse,
 } from '@/types';
 
-const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
-const normalizedApiUrl = rawApiUrl.startsWith('http://') || rawApiUrl.startsWith('https://')
-  ? rawApiUrl
-  : `https://${rawApiUrl}`;
-const apiBase = normalizedApiUrl.replace(/\/+$/, '');
-const apiBaseUrl = apiBase.endsWith('/api') ? apiBase : `${apiBase}/api`;
-
 const api = axios.create({
-  baseURL: apiBaseUrl,
+  baseURL: '/api',
   timeout: 30000,
 });
 
