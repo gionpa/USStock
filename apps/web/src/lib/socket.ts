@@ -1,6 +1,9 @@
 import { io, Socket } from 'socket.io-client';
 
-const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
+const rawSocketUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
+const SOCKET_URL = rawSocketUrl.startsWith('http://') || rawSocketUrl.startsWith('https://')
+  ? rawSocketUrl
+  : `https://${rawSocketUrl}`;
 
 class SocketManager {
   private quotesSocket: Socket | null = null;
