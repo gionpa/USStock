@@ -12,7 +12,9 @@ interface StoredNews extends StockNews {
 @Injectable()
 export class NewsRepository implements OnModuleInit {
   private readonly logger = new Logger(NewsRepository.name);
-  private redis: Redis;
+  private redis: Redis | null = null;
+  private redisEnabled = false;
+  private redisReady = false;
 
   // Redis key prefixes
   private readonly NEWS_KEY = 'news:'; // news:{id} -> news item
@@ -27,29 +29,60 @@ export class NewsRepository implements OnModuleInit {
 
   async onModuleInit() {
     const redisConfig = this.configService.get<{
+      enabled?: boolean;
       host: string;
       port: number;
       password?: string;
     }>('redis');
-    const redisHost = redisConfig?.host || this.configService.get('REDIS_HOST', 'localhost');
-    const redisPort = redisConfig?.port
-      ?? parseInt(this.configService.get('REDIS_PORT', '6381'), 10);
-    const redisPassword = redisConfig?.password || this.configService.get('REDIS_PASSWORD');
+
+    this.redisEnabled = Boolean(redisConfig?.enabled);
+    if (!this.redisEnabled) {
+      this.logger.warn('Redis disabled - news cache will use PostgreSQL only');
+      return;
+    }
 
     this.redis = new Redis({
-      host: redisHost,
-      port: redisPort,
-      password: redisPassword,
-      retryStrategy: (times) => Math.min(times * 50, 2000),
+      host: redisConfig?.host || 'localhost',
+      port: redisConfig?.port ?? 6379,
+      password: redisConfig?.password,
+      maxRetriesPerRequest: null,
+      enableOfflineQueue: false,
+      connectTimeout: 5000,
+      retryStrategy: (times) => Math.min(times * 1000, 30000),
     });
 
-    this.redis.on('connect', () => {
+    this.redis.on('ready', () => {
+      this.redisReady = true;
       this.logger.log('Connected to Redis for news storage');
     });
 
-    this.redis.on('error', (err) => {
-      this.logger.error('Redis connection error:', err.message);
+    this.redis.on('end', () => {
+      this.redisReady = false;
+      this.logger.warn('Redis connection closed for news storage');
     });
+
+    this.redis.on('error', (err) => {
+      this.redisReady = false;
+      this.logger.warn(`Redis connection error: ${err.message}`);
+    });
+  }
+
+  isAvailable(): boolean {
+    return this.redisEnabled && this.redisReady && this.redis !== null;
+  }
+
+  private async withRedis<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
+    if (!this.isAvailable()) {
+      return fallback;
+    }
+
+    try {
+      return await operation();
+    } catch (error: any) {
+      this.redisReady = false;
+      this.logger.warn(`Redis operation failed: ${error?.message || error}`);
+      return fallback;
+    }
   }
 
   /**
@@ -57,18 +90,27 @@ export class NewsRepository implements OnModuleInit {
    */
   async isDuplicate(title: string): Promise<boolean> {
     const normalizedTitle = this.normalizeTitle(title);
-    const exists = await this.redis.exists(`${this.NEWS_HASH_KEY}${normalizedTitle}`);
-    return exists === 1;
+    return this.withRedis(async () => {
+      const exists = await this.redis!.exists(`${this.NEWS_HASH_KEY}${normalizedTitle}`);
+      return exists === 1;
+    }, false);
   }
 
   /**
    * Save news item to Redis
    */
   async saveNews(news: StoredNews): Promise<void> {
+    if (!this.isAvailable()) {
+      return;
+    }
+
     const normalizedTitle = this.normalizeTitle(news.title);
 
     // Check for duplicate
-    const existingId = await this.redis.get(`${this.NEWS_HASH_KEY}${normalizedTitle}`);
+    const existingId = await this.withRedis(
+      () => this.redis!.get(`${this.NEWS_HASH_KEY}${normalizedTitle}`),
+      null,
+    );
     if (existingId) {
       this.logger.debug(`News already exists: ${news.title.substring(0, 50)}...`);
       return;
@@ -84,7 +126,7 @@ export class NewsRepository implements OnModuleInit {
       translatedAt: news.translatedAt || null,
     };
 
-    const pipeline = this.redis.pipeline();
+    const pipeline = this.redis!.pipeline();
 
     // Save news item as JSON
     pipeline.setex(newsKey, this.NEWS_TTL, JSON.stringify(newsData));
@@ -100,7 +142,7 @@ export class NewsRepository implements OnModuleInit {
     // Store hash for deduplication
     pipeline.setex(`${this.NEWS_HASH_KEY}${normalizedTitle}`, this.NEWS_TTL, news.id);
 
-    await pipeline.exec();
+    await this.withRedis(() => pipeline.exec(), null);
     this.logger.debug(`Saved news: ${news.id} - ${news.title.substring(0, 50)}...`);
   }
 
@@ -108,12 +150,19 @@ export class NewsRepository implements OnModuleInit {
    * Save batch of news items
    */
   async saveNewsBatch(newsItems: StoredNews[]): Promise<{ saved: number; duplicates: number }> {
+    if (!this.isAvailable()) {
+      return { saved: 0, duplicates: 0 };
+    }
+
     let saved = 0;
     let duplicates = 0;
 
     for (const news of newsItems) {
       const normalizedTitle = this.normalizeTitle(news.title);
-      const existingId = await this.redis.get(`${this.NEWS_HASH_KEY}${normalizedTitle}`);
+      const existingId = await this.withRedis(
+        () => this.redis!.get(`${this.NEWS_HASH_KEY}${normalizedTitle}`),
+        null,
+      );
 
       if (existingId) {
         duplicates++;
@@ -136,8 +185,12 @@ export class NewsRepository implements OnModuleInit {
     titleKo: string,
     summaryKo?: string | null,
   ): Promise<void> {
+    if (!this.isAvailable()) {
+      return;
+    }
+
     const newsKey = `${this.NEWS_KEY}${newsId}`;
-    const newsJson = await this.redis.get(newsKey);
+    const newsJson = await this.withRedis(() => this.redis!.get(newsKey), null);
 
     if (!newsJson) {
       this.logger.warn(`News not found for translation update: ${newsId}`);
@@ -150,8 +203,11 @@ export class NewsRepository implements OnModuleInit {
     news.translatedAt = new Date().toISOString();
 
     // Get remaining TTL and save with same TTL
-    const ttl = await this.redis.ttl(newsKey);
-    await this.redis.setex(newsKey, ttl > 0 ? ttl : this.NEWS_TTL, JSON.stringify(news));
+    const ttl = await this.withRedis(() => this.redis!.ttl(newsKey), -1);
+    await this.withRedis(
+      () => this.redis!.setex(newsKey, ttl > 0 ? ttl : this.NEWS_TTL, JSON.stringify(news)),
+      null,
+    );
 
     this.logger.debug(`Updated translation for: ${newsId}`);
   }
@@ -161,7 +217,10 @@ export class NewsRepository implements OnModuleInit {
    */
   async getMarketNews(limit: number = 50): Promise<StoredNews[]> {
     // Get latest news IDs from sorted set (highest scores = newest)
-    const newsIds = await this.redis.zrevrange(this.MARKET_NEWS_KEY, 0, limit - 1);
+    const newsIds = await this.withRedis(
+      () => this.redis!.zrevrange(this.MARKET_NEWS_KEY, 0, limit - 1),
+      [],
+    );
 
     if (newsIds.length === 0) {
       return [];
@@ -174,10 +233,13 @@ export class NewsRepository implements OnModuleInit {
    * Get news for specific symbol
    */
   async getNewsBySymbol(symbol: string, limit: number = 30): Promise<StoredNews[]> {
-    const newsIds = await this.redis.zrevrange(
-      `${this.SYMBOL_NEWS_KEY}${symbol.toUpperCase()}`,
-      0,
-      limit - 1
+    const newsIds = await this.withRedis(
+      () => this.redis!.zrevrange(
+        `${this.SYMBOL_NEWS_KEY}${symbol.toUpperCase()}`,
+        0,
+        limit - 1
+      ),
+      [],
     );
 
     if (newsIds.length === 0) {
@@ -191,13 +253,17 @@ export class NewsRepository implements OnModuleInit {
    * Get news by IDs
    */
   private async getNewsByIds(newsIds: string[]): Promise<StoredNews[]> {
-    const pipeline = this.redis.pipeline();
+    if (!this.isAvailable()) {
+      return [];
+    }
+
+    const pipeline = this.redis!.pipeline();
 
     for (const id of newsIds) {
       pipeline.get(`${this.NEWS_KEY}${id}`);
     }
 
-    const results = await pipeline.exec();
+    const results = await this.withRedis(() => pipeline.exec(), null);
     const news: StoredNews[] = [];
 
     for (const [err, result] of results || []) {
@@ -242,7 +308,7 @@ export class NewsRepository implements OnModuleInit {
    * Get news count
    */
   async getNewsCount(): Promise<number> {
-    return this.redis.zcard(this.MARKET_NEWS_KEY);
+    return this.withRedis(() => this.redis!.zcard(this.MARKET_NEWS_KEY), 0);
   }
 
   /**
@@ -259,13 +325,20 @@ export class NewsRepository implements OnModuleInit {
    * Clean up old news (called by scheduler)
    */
   async cleanupOldNews(): Promise<number> {
+    if (!this.isAvailable()) {
+      return 0;
+    }
+
     const cutoffTime = Date.now() - this.NEWS_TTL * 1000;
 
     // Remove old entries from sorted sets
-    const removed = await this.redis.zremrangebyscore(
-      this.MARKET_NEWS_KEY,
-      '-inf',
-      cutoffTime
+    const removed = await this.withRedis(
+      () => this.redis!.zremrangebyscore(
+        this.MARKET_NEWS_KEY,
+        '-inf',
+        cutoffTime
+      ),
+      0,
     );
 
     this.logger.log(`Cleaned up ${removed} old news entries`);

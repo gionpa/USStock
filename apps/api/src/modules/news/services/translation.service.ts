@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { spawn } from 'child_process';
 import { NewsRepository } from '../repositories/news.repository';
+import { NewsPgRepository } from '../repositories/news-pg.repository';
 
 // Claude CLI absolute path
 const CLAUDE_CLI_PATH = '/opt/homebrew/bin/claude';
@@ -79,6 +80,7 @@ export class TranslationService {
   constructor(
     private readonly configService: ConfigService,
     private readonly newsRepository: NewsRepository,
+    private readonly newsPgRepository: NewsPgRepository,
   ) {
     this.checkClaudeAvailability();
   }
@@ -157,8 +159,15 @@ export class TranslationService {
         };
       }
 
-      // Save translation to Redis
-      await this.newsRepository.updateTranslation(
+      // Save translation to Redis cache (if available) and PostgreSQL
+      if (this.newsRepository.isAvailable()) {
+        await this.newsRepository.updateTranslation(
+          newsId,
+          translated.titleKo,
+          translated.summaryKo,
+        );
+      }
+      await this.newsPgRepository.updateTranslation(
         newsId,
         translated.titleKo,
         translated.summaryKo,

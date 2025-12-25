@@ -5,20 +5,26 @@ import Redis from 'ioredis';
 
 @Controller('health')
 export class HealthController {
-  private redis: Redis;
+  private redis: Redis | null = null;
+  private readonly redisEnabled: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
   ) {
     const redisConfig = this.configService.get('redis');
-    this.redis = new Redis({
-      host: redisConfig?.host || 'localhost',
-      port: redisConfig?.port || 6381,
-      password: redisConfig?.password,
-      maxRetriesPerRequest: 1,
-      connectTimeout: 5000,
-    });
+    this.redisEnabled = Boolean(redisConfig?.enabled);
+    if (this.redisEnabled) {
+      this.redis = new Redis({
+        host: redisConfig?.host || 'localhost',
+        port: redisConfig?.port || 6379,
+        password: redisConfig?.password,
+        maxRetriesPerRequest: 1,
+        enableOfflineQueue: false,
+        connectTimeout: 5000,
+      });
+      this.redis.on('error', () => null);
+    }
   }
 
   @Get()
@@ -30,7 +36,7 @@ export class HealthController {
       environment: process.env.NODE_ENV || 'development',
       services: {
         database: 'unknown',
-        redis: 'unknown',
+        redis: this.redisEnabled ? 'unknown' : 'disabled',
       },
     };
 
@@ -44,12 +50,14 @@ export class HealthController {
     }
 
     // Check Redis connection
-    try {
-      await this.redis.ping();
-      checks.services.redis = 'healthy';
-    } catch (error) {
-      checks.services.redis = 'unhealthy';
-      checks.status = 'degraded';
+    if (this.redisEnabled && this.redis) {
+      try {
+        await this.redis.ping();
+        checks.services.redis = 'healthy';
+      } catch (error) {
+        checks.services.redis = 'unhealthy';
+        checks.status = 'degraded';
+      }
     }
 
     return checks;
@@ -64,7 +72,9 @@ export class HealthController {
   async ready() {
     try {
       await this.prisma.$queryRaw`SELECT 1`;
-      await this.redis.ping();
+      if (this.redisEnabled && this.redis) {
+        await this.redis.ping();
+      }
       return { status: 'ready' };
     } catch (error) {
       return { status: 'not_ready', error: error.message };

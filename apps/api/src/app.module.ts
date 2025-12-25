@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { Module, Logger } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bull';
+import Redis from 'ioredis';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { NewsModule } from './modules/news/news.module';
@@ -24,15 +25,34 @@ import configuration from './config/configuration';
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const redisConfig = configService.get<{
+          enabled?: boolean;
           host: string;
           port: number;
           password?: string;
         }>('redis');
+        const logger = new Logger('BullModule');
+        if (!redisConfig?.enabled) {
+          logger.warn('Redis disabled - Bull queues will not run');
+        }
+        const redisOptions = {
+          host: redisConfig?.host || 'localhost',
+          port: redisConfig?.port ?? 6379,
+          password: redisConfig?.password,
+          maxRetriesPerRequest: null,
+          enableReadyCheck: false,
+          lazyConnect: true,
+          enableOfflineQueue: false,
+          connectTimeout: 5000,
+          retryStrategy: (times: number) => Math.min(times * 1000, 30000),
+        };
         return {
-          redis: {
-            host: redisConfig?.host || process.env.REDIS_HOST || 'localhost',
-            port: redisConfig?.port ?? parseInt(process.env.REDIS_PORT || '6381', 10),
-            password: redisConfig?.password || process.env.REDIS_PASSWORD,
+          redis: redisOptions,
+          createClient: () => {
+            const client = new Redis(redisOptions);
+            client.on('error', (err) => {
+              logger.warn(`Bull Redis client error: ${err.message}`);
+            });
+            return client;
           },
         };
       },

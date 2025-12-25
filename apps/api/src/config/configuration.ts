@@ -16,6 +16,13 @@ function parseRedisUrl(url: string | undefined) {
 export default () => {
   const redisUrl = parseRedisUrl(process.env.REDIS_URL);
   const isProduction = process.env.NODE_ENV === 'production';
+  const redisEnvConfigured = Boolean(
+    process.env.REDIS_URL || process.env.REDIS_HOST || process.env.REDIS_PORT,
+  );
+  const redisEnabledEnv = process.env.REDIS_ENABLED;
+  const redisEnabled = redisEnabledEnv != null
+    ? !['false', '0', 'off', 'no'].includes(redisEnabledEnv.toLowerCase())
+    : redisEnvConfigured;
 
   return {
     port: parseInt(process.env.PORT || '3100', 10),
@@ -33,18 +40,21 @@ export default () => {
       apiKey: process.env.POLYGON_API_KEY || '',
       baseUrl: 'https://api.polygon.io',
       wsUrl: 'wss://socket.polygon.io',
+      wsEnabled: process.env.POLYGON_WS_ENABLED !== 'false',
     },
 
     finnhub: {
       apiKey: process.env.FINNHUB_API_KEY || '',
       baseUrl: 'https://finnhub.io/api/v1',
       wsUrl: 'wss://ws.finnhub.io',
+      wsEnabled: process.env.FINNHUB_WS_ENABLED !== 'false',
     },
 
     // Redis configuration - supports both REDIS_URL and individual settings
     redis: {
+      enabled: redisEnabled,
       host: redisUrl?.host || process.env.REDIS_HOST || 'localhost',
-      port: redisUrl?.port || parseInt(process.env.REDIS_PORT || '6381', 10),
+      port: redisUrl?.port || parseInt(process.env.REDIS_PORT || '6379', 10),
       password: redisUrl?.password || process.env.REDIS_PASSWORD || undefined,
     },
 

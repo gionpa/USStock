@@ -119,7 +119,7 @@ export class SignalsService {
   async addToWatchlist(symbol: string): Promise<boolean> {
     // Save to both Redis (cache) and PostgreSQL (persistent)
     const [redisResult, pgResult] = await Promise.all([
-      this.watchlistRepository.addSymbol(symbol),
+      this.safeRedis(() => this.watchlistRepository.addSymbol(symbol), false, 'add'),
       this.watchlistPgRepository.addSymbol(symbol),
     ]);
     this.logger.log(`Added ${symbol} to watchlist: Redis=${redisResult}, PostgreSQL=${pgResult}`);
@@ -129,7 +129,7 @@ export class SignalsService {
   async removeFromWatchlist(symbol: string): Promise<boolean> {
     // Remove from both Redis and PostgreSQL
     const [redisResult, pgResult] = await Promise.all([
-      this.watchlistRepository.removeSymbol(symbol),
+      this.safeRedis(() => this.watchlistRepository.removeSymbol(symbol), false, 'remove'),
       this.watchlistPgRepository.removeSymbol(symbol),
     ]);
     this.logger.log(`Removed ${symbol} from watchlist: Redis=${redisResult}, PostgreSQL=${pgResult}`);
@@ -144,10 +144,27 @@ export class SignalsService {
   async reorderWatchlist(sourceSymbol: string, targetSymbol: string): Promise<boolean> {
     // Reorder in both Redis and PostgreSQL
     const [redisResult, pgResult] = await Promise.all([
-      this.watchlistRepository.moveSymbol(sourceSymbol, targetSymbol),
+      this.safeRedis(
+        () => this.watchlistRepository.moveSymbol(sourceSymbol, targetSymbol),
+        false,
+        'reorder',
+      ),
       this.watchlistPgRepository.moveSymbol(sourceSymbol, targetSymbol),
     ]);
     return pgResult;
+  }
+
+  private async safeRedis<T>(
+    operation: () => Promise<T>,
+    fallback: T,
+    action: string,
+  ): Promise<T> {
+    try {
+      return await operation();
+    } catch (error: any) {
+      this.logger.warn(`Redis watchlist ${action} failed: ${error?.message || error}`);
+      return fallback;
+    }
   }
 
   private addToHistory(symbol: string, signal: TradingSignal): void {

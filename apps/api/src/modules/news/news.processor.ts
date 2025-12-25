@@ -4,6 +4,7 @@ import { Job } from 'bull';
 import { StockNews } from '@/common/interfaces';
 import { TranslationService } from './services/translation.service';
 import { NewsRepository } from './repositories/news.repository';
+import { NewsPgRepository } from './repositories/news-pg.repository';
 
 @Processor('news-processing')
 export class NewsProcessor {
@@ -13,6 +14,7 @@ export class NewsProcessor {
   constructor(
     private readonly translationService: TranslationService,
     private readonly newsRepository: NewsRepository,
+    private readonly newsPgRepository: NewsPgRepository,
   ) {}
 
   @Process('fetch-news')
@@ -62,7 +64,9 @@ export class NewsProcessor {
 
     try {
       // Get untranslated news from repository
-      const untranslatedNews = await this.newsRepository.getUntranslatedNews(10);
+      const untranslatedNews = this.newsRepository.isAvailable()
+        ? await this.newsRepository.getUntranslatedNews(10)
+        : await this.newsPgRepository.getUntranslatedNews(10);
 
       if (untranslatedNews.length === 0) {
         this.logger.log('No untranslated news found');

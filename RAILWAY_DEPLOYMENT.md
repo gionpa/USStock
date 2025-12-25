@@ -58,6 +58,9 @@ REDIS_URL=${{Redis.REDIS_URL}}
 NODE_ENV=production
 PORT=3001
 CORS_ORIGIN=https://your-web-service.up.railway.app
+REDIS_ENABLED=true
+POLYGON_WS_ENABLED=true
+FINNHUB_WS_ENABLED=true
 
 # API Keys (실제 값 입력)
 POLYGON_API_KEY=your_polygon_api_key
@@ -93,12 +96,15 @@ PORT=3000
 |--------|------|------|------|
 | `DATABASE_URL` | Y | PostgreSQL 연결 URL | `${{Postgres.DATABASE_URL}}` |
 | `REDIS_URL` | Y | Redis 연결 URL | `${{Redis.REDIS_URL}}` |
+| `REDIS_ENABLED` | N | Redis 사용 여부 (미설정 시 REDIS_URL 기준) | `true` |
 | `PORT` | N | 서버 포트 (기본: 3001) | `3001` |
 | `NODE_ENV` | N | 환경 (기본: production) | `production` |
 | `CORS_ORIGIN` | N | CORS 허용 도메인 | `https://web.up.railway.app` |
 | `POLYGON_API_KEY` | Y | Polygon.io API 키 | `pk_xxx` |
 | `FINNHUB_API_KEY` | Y | Finnhub API 키 | `xxx` |
 | `ANTHROPIC_API_KEY` | N | Claude API 키 (번역용) | `sk-ant-xxx` |
+| `POLYGON_WS_ENABLED` | N | Polygon WebSocket 사용 여부 | `true` |
+| `FINNHUB_WS_ENABLED` | N | Finnhub WebSocket 사용 여부 | `true` |
 
 ### Web Service 환경 변수
 
@@ -167,6 +173,7 @@ railway run npx prisma db push
 2. **Redis 연결 실패**
    - `REDIS_URL`이 올바르게 설정되었는지 확인
    - Redis 서비스가 실행 중인지 확인
+   - Redis 없이도 동작해야 한다면 `REDIS_ENABLED=false`로 비활성화
 
 3. **API 키 오류**
    - Polygon.io, Finnhub API 키가 유효한지 확인

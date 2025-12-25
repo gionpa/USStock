@@ -34,10 +34,13 @@ export class FinnhubQuotesService extends EventEmitter implements OnModuleInit, 
   private readonly baseUrl: string;
   private readonly wsUrl: string;
   private readonly apiKey: string;
+  private readonly wsEnabled: boolean;
   private ws: WebSocket | null = null;
   private subscribedSymbols = new Set<string>();
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
+  private rateLimitUntil: number | null = null;
+  private rateLimitBackoffMs = 60000;
   private pingInterval: NodeJS.Timeout | null = null;
 
   constructor(
@@ -48,13 +51,14 @@ export class FinnhubQuotesService extends EventEmitter implements OnModuleInit, 
     this.baseUrl = this.configService.get<string>('finnhub.baseUrl')!;
     this.wsUrl = this.configService.get<string>('finnhub.wsUrl')!;
     this.apiKey = this.configService.get<string>('finnhub.apiKey')!;
+    this.wsEnabled = this.configService.get<boolean>('finnhub.wsEnabled') ?? true;
   }
 
   onModuleInit() {
-    if (this.apiKey) {
+    if (this.apiKey && this.wsEnabled) {
       this.connectWebSocket();
     } else {
-      this.logger.warn('Finnhub API key not configured, WebSocket disabled');
+      this.logger.warn('Finnhub WebSocket disabled (missing key or disabled flag)');
     }
   }
 
@@ -63,12 +67,18 @@ export class FinnhubQuotesService extends EventEmitter implements OnModuleInit, 
   }
 
   private connectWebSocket() {
+    if (!this.apiKey || !this.wsEnabled) {
+      return;
+    }
+
     try {
       this.ws = new WebSocket(`${this.wsUrl}?token=${this.apiKey}`);
 
       this.ws.on('open', () => {
         this.logger.log('Connected to Finnhub WebSocket');
         this.reconnectAttempts = 0;
+        this.rateLimitUntil = null;
+        this.rateLimitBackoffMs = 60000;
         this.resubscribeSymbols();
         this.startPingInterval();
       });
@@ -84,6 +94,11 @@ export class FinnhubQuotesService extends EventEmitter implements OnModuleInit, 
       });
 
       this.ws.on('error', (error) => {
+        if (this.isRateLimitError(error)) {
+          this.handleRateLimit();
+          this.disconnectWebSocket();
+          return;
+        }
         this.logger.error('Finnhub WebSocket error:', error);
       });
     } catch (error) {
@@ -124,6 +139,17 @@ export class FinnhubQuotesService extends EventEmitter implements OnModuleInit, 
   }
 
   private attemptReconnect() {
+    if (!this.apiKey || !this.wsEnabled) {
+      return;
+    }
+
+    if (this.rateLimitUntil && Date.now() < this.rateLimitUntil) {
+      const delay = this.rateLimitUntil - Date.now();
+      this.logger.warn(`Rate limited - reconnecting in ${delay}ms...`);
+      setTimeout(() => this.connectWebSocket(), delay);
+      return;
+    }
+
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.reconnectAttempts++;
       const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
@@ -140,6 +166,29 @@ export class FinnhubQuotesService extends EventEmitter implements OnModuleInit, 
       this.ws.close();
       this.ws = null;
     }
+  }
+
+  private handleRateLimit() {
+    const backoff = this.rateLimitBackoffMs;
+    this.rateLimitBackoffMs = Math.min(this.rateLimitBackoffMs * 2, 10 * 60 * 1000);
+    this.rateLimitUntil = Date.now() + backoff;
+    this.reconnectAttempts = 0;
+    this.logger.warn(`Finnhub rate limit hit - backing off for ${backoff}ms`);
+  }
+
+  private isRateLimitError(error: unknown): boolean {
+    if (!error) {
+      return false;
+    }
+
+    const message =
+      typeof error === 'string'
+        ? error
+        : error instanceof Error
+          ? error.message
+          : String(error);
+
+    return message.includes('429');
   }
 
   private resubscribeSymbols() {

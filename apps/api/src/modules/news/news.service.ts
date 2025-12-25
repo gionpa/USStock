@@ -37,11 +37,19 @@ export class NewsService {
       return cachedNews;
     }
 
+    const pgNews = await this.newsPgRepository.getMarketNews(50);
+    if (pgNews.length > 0) {
+      this.logger.debug(`Returning ${pgNews.length} news from PostgreSQL`);
+      return pgNews;
+    }
+
     // If no cached news, fetch fresh and store
     this.logger.log('No cached news, fetching fresh...');
     await this.fetchAndStoreMarketNews();
 
-    return this.newsRepository.getMarketNews(50);
+    return this.newsRepository.isAvailable()
+      ? this.newsRepository.getMarketNews(50)
+      : this.newsPgRepository.getMarketNews(50);
   }
 
   /**
@@ -56,11 +64,19 @@ export class NewsService {
       return cachedNews;
     }
 
+    const pgNews = await this.newsPgRepository.getNewsBySymbol(symbol, 30);
+    if (pgNews.length > 0) {
+      this.logger.debug(`Returning ${pgNews.length} news for ${symbol} from PostgreSQL`);
+      return pgNews;
+    }
+
     // If no cached news for symbol, fetch fresh
     this.logger.log(`No cached news for ${symbol}, fetching...`);
     await this.fetchAndStoreSymbolNews(symbol);
 
-    return this.newsRepository.getNewsBySymbol(symbol, 30);
+    return this.newsRepository.isAvailable()
+      ? this.newsRepository.getNewsBySymbol(symbol, 30)
+      : this.newsPgRepository.getNewsBySymbol(symbol, 30);
   }
 
   /**
@@ -85,7 +101,7 @@ export class NewsService {
     this.logger.log(`Fetched ${allNews.length} unique news items`);
 
     // Save to Redis (cache) and PostgreSQL (persistent)
-    const [redisResult, pgResult] = await Promise.all([
+    const [_redisResult, pgResult] = await Promise.all([
       this.newsRepository.saveNewsBatch(allNews),
       this.newsPgRepository.saveNewsBatch(allNews),
     ]);
@@ -93,11 +109,11 @@ export class NewsService {
     this.logger.log(`Saved to PostgreSQL: ${pgResult.saved} new, ${pgResult.duplicates} duplicates`);
 
     // Queue untranslated news for translation
-    if (redisResult.saved > 0) {
+    if (pgResult.saved > 0 && this.newsRepository.isAvailable()) {
       await this.newsQueue.add('translate-batch', {}, { delay: 1000 });
     }
 
-    return redisResult;
+    return pgResult;
   }
 
   /**
@@ -114,14 +130,14 @@ export class NewsService {
     const allNews = this.deduplicateNews([...polygonNews, ...finnhubNews]);
 
     // Save to Redis (cache) and PostgreSQL (persistent)
-    const [redisResult, pgResult] = await Promise.all([
+    const [_redisResult, pgResult] = await Promise.all([
       this.newsRepository.saveNewsBatch(allNews),
       this.newsPgRepository.saveNewsBatch(allNews),
     ]);
 
     this.logger.log(`Saved ${symbol} news to PostgreSQL: ${pgResult.saved} new, ${pgResult.duplicates} duplicates`);
 
-    return redisResult;
+    return pgResult;
   }
 
   /**
@@ -178,22 +194,31 @@ export class NewsService {
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async scheduledCleanup() {
     this.logger.log('Running scheduled news cleanup...');
-    const removed = await this.newsRepository.cleanupOldNews();
-    this.logger.log(`Cleanup complete: removed ${removed} old entries`);
+    const [redisRemoved, pgRemoved] = await Promise.all([
+      this.newsRepository.cleanupOldNews(),
+      this.newsPgRepository.cleanupOldNews(),
+    ]);
+    this.logger.log(`Cleanup complete: Redis=${redisRemoved}, PostgreSQL=${pgRemoved}`);
   }
 
   /**
    * Get untranslated news for translation job
    */
   async getUntranslatedNews(limit: number = 20): Promise<StoredNews[]> {
-    return this.newsRepository.getUntranslatedNews(limit);
+    if (this.newsRepository.isAvailable()) {
+      return this.newsRepository.getUntranslatedNews(limit);
+    }
+
+    return this.newsPgRepository.getUntranslatedNews(limit);
   }
 
   /**
    * Get news stats
    */
   async getStats(): Promise<{ totalNews: number }> {
-    const totalNews = await this.newsRepository.getNewsCount();
+    const totalNews = this.newsRepository.isAvailable()
+      ? await this.newsRepository.getNewsCount()
+      : await this.newsPgRepository.getNewsCount();
     return { totalNews };
   }
 
@@ -201,6 +226,11 @@ export class NewsService {
    * Manually trigger translation for untranslated news
    */
   async triggerTranslation(): Promise<{ queued: number }> {
+    if (!this.newsRepository.isAvailable()) {
+      this.logger.warn('Redis unavailable - translation queue disabled');
+      return { queued: 0 };
+    }
+
     const untranslated = await this.newsRepository.getUntranslatedNews(20);
 
     if (untranslated.length === 0) {

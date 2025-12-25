@@ -5,7 +5,9 @@ import Redis from 'ioredis';
 @Injectable()
 export class WatchlistRepository implements OnModuleInit {
   private readonly logger = new Logger(WatchlistRepository.name);
-  private redis!: Redis;
+  private redis: Redis | null = null;
+  private redisEnabled = false;
+  private redisReady = false;
   private readonly WATCHLIST_KEY = 'signals:watchlist';
   private readonly WATCHLIST_INIT_KEY = 'signals:watchlist:initialized';
   private readonly defaultWatchlist = [
@@ -16,37 +18,79 @@ export class WatchlistRepository implements OnModuleInit {
 
   async onModuleInit() {
     const redisConfig = this.configService.get<{
+      enabled?: boolean;
       host: string;
       port: number;
       password?: string;
     }>('redis');
-    const redisHost = redisConfig?.host || this.configService.get('REDIS_HOST', 'localhost');
-    const redisPort = redisConfig?.port
-      ?? parseInt(this.configService.get('REDIS_PORT', '6381'), 10);
-    const redisPassword = redisConfig?.password || this.configService.get('REDIS_PASSWORD');
+
+    this.redisEnabled = Boolean(redisConfig?.enabled);
+    if (!this.redisEnabled) {
+      this.logger.warn('Redis disabled - watchlist cache will use PostgreSQL only');
+      return;
+    }
 
     this.redis = new Redis({
-      host: redisHost,
-      port: redisPort,
-      password: redisPassword,
-      retryStrategy: (times) => Math.min(times * 50, 2000),
+      host: redisConfig?.host || 'localhost',
+      port: redisConfig?.port ?? 6379,
+      password: redisConfig?.password,
+      maxRetriesPerRequest: null,
+      enableOfflineQueue: false,
+      connectTimeout: 5000,
+      retryStrategy: (times) => Math.min(times * 1000, 30000),
     });
 
-    this.redis.on('connect', () => {
+    this.redis.on('ready', () => {
+      this.redisReady = true;
       this.logger.log('Connected to Redis for watchlist storage');
+      void this.ensureDefaults();
+    });
+
+    this.redis.on('end', () => {
+      this.redisReady = false;
+      this.logger.warn('Redis connection closed for watchlist storage');
     });
 
     this.redis.on('error', (err) => {
-      this.logger.error('Redis connection error:', err.message);
+      this.redisReady = false;
+      this.logger.warn(`Redis connection error: ${err.message}`);
     });
 
     await this.ensureDefaults();
   }
 
+  isAvailable(): boolean {
+    return this.redisEnabled && this.redisReady && this.redis !== null;
+  }
+
+  private async withRedis<T>(operation: () => Promise<T>, fallback: T): Promise<T> {
+    if (!this.isAvailable()) {
+      return fallback;
+    }
+
+    try {
+      return await operation();
+    } catch (error: any) {
+      this.redisReady = false;
+      this.logger.warn(`Redis operation failed: ${error?.message || error}`);
+      return fallback;
+    }
+  }
+
   async getWatchlist(): Promise<string[]> {
-    const list = await this.redis.lrange(this.WATCHLIST_KEY, 0, -1);
+    if (!this.isAvailable()) {
+      return [...this.defaultWatchlist];
+    }
+
+    const list = await this.withRedis(
+      () => this.redis!.lrange(this.WATCHLIST_KEY, 0, -1),
+      [],
+    );
     if (list.length === 0) {
-      const initialized = await this.redis.get(this.WATCHLIST_INIT_KEY);
+      const initialized = await this.withRedis(
+        () => this.redis!.get(this.WATCHLIST_INIT_KEY),
+        null,
+      );
       if (!initialized) {
         await this.ensureDefaults();
         return [...this.defaultWatchlist];
@@ -56,25 +100,46 @@ export class WatchlistRepository implements OnModuleInit {
   }
 
   async addSymbol(symbol: string): Promise<boolean> {
+    if (!this.isAvailable()) {
+      return false;
+    }
+
     const normalized = symbol.toUpperCase();
-    const list = await this.redis.lrange(this.WATCHLIST_KEY, 0, -1);
+    const list = await this.withRedis(
+      () => this.redis!.lrange(this.WATCHLIST_KEY, 0, -1),
+      [],
+    );
     if (list.includes(normalized)) {
       return false;
     }
-    await this.redis.lpush(this.WATCHLIST_KEY, normalized);
+    await this.withRedis(() => this.redis!.lpush(this.WATCHLIST_KEY, normalized), null);
     return true;
   }
 
   async removeSymbol(symbol: string): Promise<boolean> {
+    if (!this.isAvailable()) {
+      return false;
+    }
+
     const normalized = symbol.toUpperCase();
-    const removed = await this.redis.lrem(this.WATCHLIST_KEY, 0, normalized);
+    const removed = await this.withRedis(
+      () => this.redis!.lrem(this.WATCHLIST_KEY, 0, normalized),
+      0,
+    );
     return removed > 0;
   }
 
   async moveSymbol(sourceSymbol: string, targetSymbol: string): Promise<boolean> {
+    if (!this.isAvailable()) {
+      return false;
+    }
+
     const normalizedSource = sourceSymbol.toUpperCase();
     const normalizedTarget = targetSymbol.toUpperCase();
-    const list = await this.redis.lrange(this.WATCHLIST_KEY, 0, -1);
+    const list = await this.withRedis(
+      () => this.redis!.lrange(this.WATCHLIST_KEY, 0, -1),
+      [],
+    );
     const sourceIndex = list.indexOf(normalizedSource);
     const targetIndex = list.indexOf(normalizedTarget);
 
@@ -91,29 +156,46 @@ export class WatchlistRepository implements OnModuleInit {
   }
 
   private async ensureDefaults(): Promise<void> {
-    const initialized = await this.redis.get(this.WATCHLIST_INIT_KEY);
+    if (!this.isAvailable()) {
+      return;
+    }
+
+    const initialized = await this.withRedis(
+      () => this.redis!.get(this.WATCHLIST_INIT_KEY),
+      null,
+    );
     if (initialized) {
       return;
     }
 
-    const length = await this.redis.llen(this.WATCHLIST_KEY);
+    const length = await this.withRedis(
+      () => this.redis!.llen(this.WATCHLIST_KEY),
+      0,
+    );
     if (length === 0) {
-      await this.redis.rpush(this.WATCHLIST_KEY, ...this.defaultWatchlist);
+      await this.withRedis(
+        () => this.redis!.rpush(this.WATCHLIST_KEY, ...this.defaultWatchlist),
+        null,
+      );
     }
 
-    await this.redis.set(this.WATCHLIST_INIT_KEY, '1');
+    await this.withRedis(() => this.redis!.set(this.WATCHLIST_INIT_KEY, '1'), null);
   }
 
   private async replaceWatchlist(symbols: string[]): Promise<void> {
+    if (!this.isAvailable()) {
+      return;
+    }
+
     const normalized = Array.from(
       new Set(symbols.map((symbol) => symbol.toUpperCase())),
     ).filter(Boolean);
 
-    const pipeline = this.redis.multi();
+    const pipeline = this.redis!.multi();
     pipeline.del(this.WATCHLIST_KEY);
     if (normalized.length > 0) {
       pipeline.rpush(this.WATCHLIST_KEY, ...normalized);
     }
-    await pipeline.exec();
+    await this.withRedis(() => pipeline.exec(), null);
   }
 }
