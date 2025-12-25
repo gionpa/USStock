@@ -81,6 +81,7 @@ export class TranslationService {
   private isClaudeAvailable = false;
   private isClaudeCliAvailable = false;
   private isAnthropicAvailable = false;
+  private readonly claudeCliOnly: boolean;
   private readonly claudeCliPath: string;
   private readonly anthropicApiKey: string;
   private readonly anthropicApiUrl: string;
@@ -92,6 +93,9 @@ export class TranslationService {
     private readonly newsRepository: NewsRepository,
     private readonly newsPgRepository: NewsPgRepository,
   ) {
+    this.claudeCliOnly = this.parseBoolean(
+      this.configService.get<string>('CLAUDE_CLI_ONLY'),
+    );
     this.claudeCliPath =
       this.configService.get<string>('CLAUDE_CLI_PATH') || DEFAULT_CLAUDE_CLI_PATH;
     this.anthropicApiKey =
@@ -114,6 +118,10 @@ export class TranslationService {
     this.isAnthropicAvailable = Boolean(this.anthropicApiKey);
     if (this.isAnthropicAvailable) {
       this.logger.log(`Anthropic API enabled with model ${this.anthropicModel}`);
+    }
+    if (this.claudeCliOnly) {
+      this.logger.log('Claude CLI only mode enabled');
+      this.isAnthropicAvailable = false;
     }
 
     try {
@@ -374,8 +382,14 @@ export class TranslationService {
         if (stdout.trim()) {
           return stdout;
         }
+        if (this.claudeCliOnly) {
+          throw new Error('Claude CLI returned empty output');
+        }
         this.logger.warn('Claude CLI returned empty output, falling back to API');
       } catch (error: any) {
+        if (this.claudeCliOnly) {
+          throw error;
+        }
         this.logger.warn(`Claude CLI failed, falling back to API: ${error?.message}`);
       }
     }
@@ -385,6 +399,13 @@ export class TranslationService {
     }
 
     throw new Error('No translation backend available');
+  }
+
+  private parseBoolean(value?: string): boolean {
+    if (!value) {
+      return false;
+    }
+    return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
   }
 
   private async runClaudeApi(prompt: string): Promise<string> {
