@@ -15,9 +15,15 @@ export class WatchlistRepository implements OnModuleInit {
   constructor(private readonly configService: ConfigService) {}
 
   async onModuleInit() {
-    const redisHost = this.configService.get('REDIS_HOST', 'localhost');
-    const redisPort = this.configService.get('REDIS_PORT', 6381);
-    const redisPassword = this.configService.get('REDIS_PASSWORD');
+    const redisConfig = this.configService.get<{
+      host: string;
+      port: number;
+      password?: string;
+    }>('redis');
+    const redisHost = redisConfig?.host || this.configService.get('REDIS_HOST', 'localhost');
+    const redisPort = redisConfig?.port
+      ?? parseInt(this.configService.get('REDIS_PORT', '6381'), 10);
+    const redisPassword = redisConfig?.password || this.configService.get('REDIS_PASSWORD');
 
     this.redis = new Redis({
       host: redisHost,

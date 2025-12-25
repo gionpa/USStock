@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bull';
 
@@ -20,11 +20,21 @@ import configuration from './config/configuration';
       load: [configuration],
     }),
     ScheduleModule.forRoot(),
-    BullModule.forRoot({
-      redis: {
-        host: process.env.REDIS_HOST || 'localhost',
-        port: parseInt(process.env.REDIS_PORT || '6381', 10),
-        password: process.env.REDIS_PASSWORD,
+    BullModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const redisConfig = configService.get<{
+          host: string;
+          port: number;
+          password?: string;
+        }>('redis');
+        return {
+          redis: {
+            host: redisConfig?.host || process.env.REDIS_HOST || 'localhost',
+            port: redisConfig?.port ?? parseInt(process.env.REDIS_PORT || '6381', 10),
+            password: redisConfig?.password || process.env.REDIS_PASSWORD,
+          },
+        };
       },
     }),
     PrismaModule,
