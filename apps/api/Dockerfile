@@ -13,7 +13,7 @@ COPY package*.json ./
 # Copy prisma schema for generation
 COPY ./prisma/ ./prisma/
 
-RUN npm ci
+RUN npm install
 
 # Generate Prisma client
 RUN npx prisma generate
