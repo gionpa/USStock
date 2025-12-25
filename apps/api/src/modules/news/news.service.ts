@@ -329,6 +329,15 @@ export class NewsService {
       return { processed: 0, newsId: latest.id, reason: 'Translation failed' };
     }
 
+    if (this.newsRepository.isAvailable()) {
+      await this.newsRepository.upsertNews({
+        ...latest,
+        titleKo: result.titleKo,
+        summaryKo: result.summaryKo,
+        translatedAt: new Date().toISOString(),
+      });
+    }
+
     return { processed: 1, newsId: latest.id };
   }
 }

@@ -149,6 +149,38 @@ export class NewsRepository implements OnModuleInit {
   }
 
   /**
+   * Upsert news item to Redis (skip deduplication)
+   */
+  async upsertNews(news: StoredNews): Promise<void> {
+    if (!this.isAvailable()) {
+      return;
+    }
+
+    const normalizedTitle = this.normalizeTitle(news.title);
+    const newsKey = `${this.NEWS_KEY}${news.id}`;
+    const publishedTimestamp = news.publishedAt.getTime();
+
+    const newsData = {
+      ...news,
+      publishedAt: news.publishedAt.toISOString(),
+      translatedAt: news.translatedAt || null,
+    };
+
+    const pipeline = this.redis!.pipeline();
+    pipeline.setex(newsKey, this.NEWS_TTL, JSON.stringify(newsData));
+    pipeline.zadd(this.MARKET_NEWS_KEY, publishedTimestamp, news.id);
+
+    for (const symbol of news.symbols) {
+      pipeline.zadd(`${this.SYMBOL_NEWS_KEY}${symbol}`, publishedTimestamp, news.id);
+    }
+
+    pipeline.setex(`${this.NEWS_HASH_KEY}${normalizedTitle}`, this.NEWS_TTL, news.id);
+
+    await this.withRedis(() => pipeline.exec(), null);
+    this.logger.debug(`Upserted news: ${news.id} - ${news.title.substring(0, 50)}...`);
+  }
+
+  /**
    * Save batch of news items
    */
   async saveNewsBatch(newsItems: StoredNews[]): Promise<{ saved: number; duplicates: number }> {
