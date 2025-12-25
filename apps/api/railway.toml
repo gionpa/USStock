@@ -1,11 +1,10 @@
 [build]
-builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+builder = "nixpacks"
 
 [deploy]
 healthcheckPath = "/api/health"
 healthcheckTimeout = 300
-startCommand = "npx prisma db push --skip-generate && node dist/main"
+startCommand = "npx prisma generate && npx prisma db push --skip-generate && node dist/main"
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 10
 numReplicas = 1
