@@ -170,6 +170,30 @@ export class NewsPgRepository {
   }
 
   /**
+   * Get untranslated news items for a specific symbol
+   */
+  async getUntranslatedNewsBySymbol(symbol: string, limit: number = 20): Promise<StoredNews[]> {
+    const newsItems = await this.prisma.news.findMany({
+      where: {
+        symbols: { has: symbol.toUpperCase() },
+        OR: [
+          { titleKo: null },
+          {
+            AND: [
+              { summary: { not: null } },
+              { summaryKo: null },
+            ],
+          },
+        ],
+      },
+      orderBy: { publishedAt: 'desc' },
+      take: limit,
+    });
+
+    return newsItems.map(this.toStoredNews);
+  }
+
+  /**
    * Get news count
    */
   async getNewsCount(): Promise<number> {

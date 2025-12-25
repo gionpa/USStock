@@ -4,14 +4,14 @@ import { spawn } from 'child_process';
 import { NewsRepository } from '../repositories/news.repository';
 import { NewsPgRepository } from '../repositories/news-pg.repository';
 
-// Claude CLI absolute path
-const CLAUDE_CLI_PATH = '/opt/homebrew/bin/claude';
+// Claude CLI default path
+const DEFAULT_CLAUDE_CLI_PATH = '/opt/homebrew/bin/claude';
 
 // Helper function to run Claude CLI with proper environment
-function runClaudeCLI(prompt: string): Promise<{ stdout: string; stderr: string }> {
+function runClaudeCLI(cliPath: string, prompt: string): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(
-      CLAUDE_CLI_PATH,
+      cliPath,
       ['-p', prompt, '--output-format', 'text'],
       {
         env: {
@@ -76,24 +76,33 @@ interface TranslatedNews {
 export class TranslationService {
   private readonly logger = new Logger(TranslationService.name);
   private isClaudeAvailable = false;
+  private readonly claudeCliPath: string;
 
   constructor(
     private readonly configService: ConfigService,
     private readonly newsRepository: NewsRepository,
     private readonly newsPgRepository: NewsPgRepository,
   ) {
+    this.claudeCliPath =
+      this.configService.get<string>('CLAUDE_CLI_PATH') || DEFAULT_CLAUDE_CLI_PATH;
     this.checkClaudeAvailability();
   }
 
   private async checkClaudeAvailability(): Promise<void> {
     try {
       const fs = await import('fs');
-      if (fs.existsSync(CLAUDE_CLI_PATH)) {
+      if (!this.claudeCliPath.includes('/')) {
         this.isClaudeAvailable = true;
-        this.logger.log(`Claude CLI available at ${CLAUDE_CLI_PATH}`);
+        this.logger.log(`Claude CLI will resolve from PATH: ${this.claudeCliPath}`);
+        return;
+      }
+
+      if (fs.existsSync(this.claudeCliPath)) {
+        this.isClaudeAvailable = true;
+        this.logger.log(`Claude CLI available at ${this.claudeCliPath}`);
       } else {
         this.isClaudeAvailable = false;
-        this.logger.warn('Claude CLI not found - translation disabled');
+        this.logger.warn(`Claude CLI not found at ${this.claudeCliPath} - translation disabled`);
       }
     } catch {
       this.isClaudeAvailable = false;
@@ -247,7 +256,7 @@ export class TranslationService {
       `요약: ${summary}`,
     ].join('\n');
 
-    const { stdout } = await runClaudeCLI(prompt);
+    const { stdout } = await runClaudeCLI(this.claudeCliPath, prompt);
     const parsed = this.parseTaggedOutput(stdout);
     if (!parsed) {
       this.logger.warn('Combined translation output could not be parsed');
@@ -263,7 +272,7 @@ export class TranslationService {
       `제목: ${title}`,
     ].join('\n');
 
-    const { stdout } = await runClaudeCLI(prompt);
+    const { stdout } = await runClaudeCLI(this.claudeCliPath, prompt);
     const translatedTitle = stdout.trim();
     if (!translatedTitle || translatedTitle.toLowerCase().includes('error')) {
       this.logger.warn('Title translation returned empty');
@@ -281,7 +290,7 @@ export class TranslationService {
       `요약: ${summary}`,
     ].join('\n');
 
-    const { stdout } = await runClaudeCLI(prompt);
+    const { stdout } = await runClaudeCLI(this.claudeCliPath, prompt);
     const summarized = stdout.trim();
     if (!summarized || summarized.toLowerCase().includes('error')) {
       this.logger.warn('Summary translation returned empty');

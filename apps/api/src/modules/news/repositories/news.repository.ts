@@ -289,20 +289,17 @@ export class NewsRepository implements OnModuleInit {
   async getUntranslatedNews(limit: number = 20): Promise<StoredNews[]> {
     const allNews = await this.getMarketNews(100);
     return allNews
-      .filter((news) => {
-        if (!news.titleKo) {
-          return true;
-        }
-        if (news.summary) {
-          if (news.summaryKo === null) {
-            return false;
-          }
-          if (!news.summaryKo || news.summaryKo === news.summary) {
-            return true;
-          }
-        }
-        return false;
-      })
+      .filter((news) => this.needsTranslation(news))
+      .slice(0, limit);
+  }
+
+  /**
+   * Get untranslated news items for a specific symbol
+   */
+  async getUntranslatedNewsBySymbol(symbol: string, limit: number = 20): Promise<StoredNews[]> {
+    const symbolNews = await this.getNewsBySymbol(symbol.toUpperCase(), 100);
+    return symbolNews
+      .filter((news) => this.needsTranslation(news))
       .slice(0, limit);
   }
 
@@ -311,6 +308,21 @@ export class NewsRepository implements OnModuleInit {
    */
   async getNewsCount(): Promise<number> {
     return this.withRedis(() => this.redis!.zcard(this.MARKET_NEWS_KEY), 0);
+  }
+
+  private needsTranslation(news: StoredNews): boolean {
+    if (!news.titleKo) {
+      return true;
+    }
+    if (news.summary) {
+      if (news.summaryKo === null) {
+        return false;
+      }
+      if (!news.summaryKo || news.summaryKo === news.summary) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

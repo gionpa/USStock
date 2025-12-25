@@ -6,6 +6,7 @@ import { PolygonNewsService } from './providers/polygon-news.service';
 import { FinnhubNewsService } from './providers/finnhub-news.service';
 import { NewsRepository } from './repositories/news.repository';
 import { NewsPgRepository } from './repositories/news-pg.repository';
+import { TranslationService } from './services/translation.service';
 import { StockNews, NewsSentiment } from '@/common/interfaces';
 
 interface StoredNews extends StockNews {
@@ -22,6 +23,7 @@ export class NewsService {
     private readonly finnhubNews: FinnhubNewsService,
     private readonly newsRepository: NewsRepository,
     private readonly newsPgRepository: NewsPgRepository,
+    private readonly translationService: TranslationService,
     @InjectQueue('news-processing') private readonly newsQueue: Queue,
   ) {}
 
@@ -61,18 +63,21 @@ export class NewsService {
 
     if (cachedNews.length > 0) {
       this.logger.debug(`Returning ${cachedNews.length} news for ${symbol} from Redis`);
+      await this.triggerSymbolTranslationIfNeeded(symbol, false);
       return cachedNews;
     }
 
     const pgNews = await this.newsPgRepository.getNewsBySymbol(symbol, 30);
     if (pgNews.length > 0) {
       this.logger.debug(`Returning ${pgNews.length} news for ${symbol} from PostgreSQL`);
+      await this.triggerSymbolTranslationIfNeeded(symbol, false);
       return pgNews;
     }
 
     // If no cached news for symbol, fetch fresh
     this.logger.log(`No cached news for ${symbol}, fetching...`);
     await this.fetchAndStoreSymbolNews(symbol);
+    await this.triggerSymbolTranslationIfNeeded(symbol, true);
 
     return this.newsRepository.isAvailable()
       ? this.newsRepository.getNewsBySymbol(symbol, 30)
@@ -138,6 +143,55 @@ export class NewsService {
     this.logger.log(`Saved ${symbol} news to PostgreSQL: ${pgResult.saved} new, ${pgResult.duplicates} duplicates`);
 
     return pgResult;
+  }
+
+  private isTranslationTarget(symbol: string): boolean {
+    return symbol.toUpperCase() === 'RGTI';
+  }
+
+  private async triggerSymbolTranslationIfNeeded(symbol: string, allowInline: boolean): Promise<void> {
+    if (!this.isTranslationTarget(symbol)) {
+      return;
+    }
+
+    if (!this.translationService.isAvailable()) {
+      this.logger.warn(`Claude CLI unavailable - translation skipped for ${symbol}`);
+      return;
+    }
+
+    const untranslated = this.newsRepository.isAvailable()
+      ? await this.newsRepository.getUntranslatedNewsBySymbol(symbol, 10)
+      : await this.newsPgRepository.getUntranslatedNewsBySymbol(symbol, 10);
+
+    if (untranslated.length === 0) {
+      return;
+    }
+
+    if (this.newsRepository.isAvailable()) {
+      await this.newsQueue.add(
+        'translate-symbol',
+        { symbol: symbol.toUpperCase(), limit: 10 },
+        { delay: 500 },
+      );
+      return;
+    }
+
+    const translate = this.translationService.translateBatch(
+      untranslated.map((item) => ({
+        id: item.id,
+        title: item.title,
+        summary: item.summary,
+      })),
+    );
+
+    if (allowInline) {
+      await translate;
+      return;
+    }
+
+    void translate.catch((error: any) => {
+      this.logger.error(`Inline translation failed for ${symbol}: ${error?.message}`);
+    });
   }
 
   /**

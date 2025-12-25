@@ -103,6 +103,70 @@ export class NewsProcessor {
   }
 
   /**
+   * Translate untranslated news for a specific symbol
+   */
+  @Process('translate-symbol')
+  async handleTranslateSymbol(job: Job<{ symbol: string; limit?: number }>) {
+    const symbol = job.data?.symbol?.toUpperCase();
+    const limit = job.data?.limit ?? 10;
+
+    if (!symbol) {
+      this.logger.warn('translate-symbol job missing symbol');
+      return { status: 'invalid', translated: 0 };
+    }
+
+    if (this.isTranslating) {
+      this.logger.log('Translation already in progress, skipping...');
+      return { status: 'skipped', reason: 'already_translating' };
+    }
+
+    if (!this.translationService.isAvailable()) {
+      this.logger.warn('Claude CLI unavailable - symbol translation skipped');
+      return { status: 'disabled', translated: 0 };
+    }
+
+    this.isTranslating = true;
+    this.logger.log(`Starting symbol translation job for ${symbol}...`);
+
+    try {
+      const untranslatedNews = this.newsRepository.isAvailable()
+        ? await this.newsRepository.getUntranslatedNewsBySymbol(symbol, limit)
+        : await this.newsPgRepository.getUntranslatedNewsBySymbol(symbol, limit);
+
+      if (untranslatedNews.length === 0) {
+        this.logger.log(`No untranslated news found for ${symbol}`);
+        this.isTranslating = false;
+        return { status: 'no_work', translated: 0 };
+      }
+
+      this.logger.log(`Found ${untranslatedNews.length} ${symbol} news items to translate`);
+
+      const result = await this.translationService.translateBatch(
+        untranslatedNews.map((n) => ({
+          id: n.id,
+          title: n.title,
+          summary: n.summary,
+        })),
+      );
+
+      this.logger.log(
+        `Symbol translation job complete for ${symbol}: ${result.success} success, ${result.failed} failed`,
+      );
+
+      this.isTranslating = false;
+      return {
+        status: 'completed',
+        translated: result.success,
+        failed: result.failed,
+      };
+    } catch (error: any) {
+      this.isTranslating = false;
+      this.logger.error(`Symbol translation job failed for ${symbol}: ${error?.message}`);
+      throw error;
+    }
+  }
+
+  /**
    * Translate a single news item
    */
   @Process('translate-single')
