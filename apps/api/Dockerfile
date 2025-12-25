@@ -7,8 +7,11 @@ RUN apk add --no-cache openssl
 FROM base AS deps
 WORKDIR /app
 
+# Copy package files first
 COPY package*.json ./
-COPY prisma ./prisma/
+
+# Copy prisma schema for generation
+COPY ./prisma/ ./prisma/
 
 RUN npm ci
 
@@ -20,11 +23,8 @@ FROM base AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/prisma ./prisma
+COPY --from=deps /app/node_modules/.prisma ./node_modules/.prisma
 COPY . .
-
-# Generate Prisma client again (for build context)
-RUN npx prisma generate
 
 RUN npm run build
 
