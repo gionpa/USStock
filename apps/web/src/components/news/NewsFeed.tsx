@@ -97,7 +97,7 @@ function NewsItem({ news }: { news: StockNews }) {
       </div>
 
       {summary && (
-        <p className="text-slate-400 text-xs mt-1 line-clamp-2">
+        <p className="text-slate-400 text-xs mt-2 leading-relaxed whitespace-pre-line break-words">
           {summary}
         </p>
       )}
