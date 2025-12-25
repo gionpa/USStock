@@ -8,7 +8,7 @@
 ┌─────────────────┐     ┌─────────────────┐
 │   Web Service   │────▶│   API Service   │
 │   (Next.js)     │◀────│   (NestJS)      │
-│   Port: 3000    │     │   Port: 3001    │
+│   Port: 8088    │     │   Port: 3001    │
 └─────────────────┘     └─────────────────┘
                                │
                  ┌─────────────┼─────────────┐
@@ -85,7 +85,7 @@ NEXT_PUBLIC_API_URL=${{api.RAILWAY_PUBLIC_DOMAIN}}
 NEXT_PUBLIC_API_URL=https://your-api-service.up.railway.app
 
 NODE_ENV=production
-PORT=3000
+PORT=8088
 ```
 
 ## 환경 변수 상세
@@ -112,7 +112,7 @@ PORT=3000
 | 변수명 | 필수 | 설명 | 예시 |
 |--------|------|------|------|
 | `NEXT_PUBLIC_API_URL` | Y | API 서버 URL | `https://api.up.railway.app` |
-| `PORT` | N | 서버 포트 (기본: 3000) | `3000` |
+| `PORT` | N | 서버 포트 (기본: 8088) | `8088` |
 | `NODE_ENV` | N | 환경 | `production` |
 
 ## 배포 확인
