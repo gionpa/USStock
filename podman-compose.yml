@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: usstock-redis
+    ports:
+      - "6381:6379"
+    volumes:
+      - usstock-redis-data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.dev
+    container_name: usstock-api
+    ports:
+      - "3100:3100"
+    environment:
+      - NODE_ENV=development
+      - PORT=3100
+      - CORS_ORIGIN=http://localhost:3200
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - POLYGON_API_KEY=${POLYGON_API_KEY:-}
+      - FINNHUB_API_KEY=${FINNHUB_API_KEY:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./apps/api/src:/app/src:ro
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile.dev
+    container_name: usstock-web
+    ports:
+      - "3200:3200"
+    environment:
+      - NODE_ENV=development
+      - PORT=3200
+      - NEXT_PUBLIC_API_URL=http://localhost:3100
+    depends_on:
+      - api
+    volumes:
+      - ./apps/web/src:/app/src:ro
+    restart: unless-stopped
+
+volumes:
+  usstock-redis-data:

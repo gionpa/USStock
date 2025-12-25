@@ -1,0 +1,27 @@
+{
+  "name": "usstock",
+  "version": "1.0.0",
+  "description": "US Stock real-time analysis and signal platform",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "packages/agents/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=apps/api",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "build:api": "npm run build --workspace=apps/api",
+    "build:web": "npm run build --workspace=apps/web",
+    "start:api": "npm run start:prod --workspace=apps/api",
+    "start:web": "npm run start --workspace=apps/web",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "keywords": ["stock", "trading", "signals", "analysis"],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

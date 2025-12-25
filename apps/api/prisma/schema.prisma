@@ -1,0 +1,98 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// News article from various providers (Polygon, Finnhub)
+model News {
+  id           String    @id @default(uuid())
+  externalId   String    @unique @map("external_id") // Original ID from provider
+  provider     String    // polygon, finnhub
+  title        String
+  summary      String?   @db.Text
+  url          String
+  imageUrl     String?   @map("image_url")
+  source       String    // Publisher name
+  symbols      String[]  // Related stock symbols
+  sentiment    Float?    // Sentiment score if available
+  publishedAt  DateTime  @map("published_at")
+
+  // Korean translations
+  titleKo      String?   @map("title_ko")
+  summaryKo    String?   @map("summary_ko") @db.Text
+  translatedAt DateTime? @map("translated_at")
+
+  // Metadata
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@index([publishedAt(sort: Desc)])
+  @@index([symbols])
+  @@index([provider])
+  @@map("news")
+}
+
+// User's watchlist for tracking favorite stocks
+model Watchlist {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id") // For future user authentication
+  symbol    String   // Stock symbol (e.g., AAPL, GOOGL)
+  name      String?  // Company name
+  addedAt   DateTime @default(now()) @map("added_at")
+  notes     String?  @db.Text // User notes about the stock
+
+  // Price alert settings (optional)
+  alertEnabled  Boolean  @default(false) @map("alert_enabled")
+  alertPriceMin Float?   @map("alert_price_min")
+  alertPriceMax Float?   @map("alert_price_max")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, symbol])
+  @@index([userId])
+  @@index([symbol])
+  @@map("watchlist")
+}
+
+// Stock price history for caching and analysis
+model StockPrice {
+  id        String   @id @default(uuid())
+  symbol    String
+  date      DateTime @db.Date
+  open      Float
+  high      Float
+  low       Float
+  close     Float
+  volume    BigInt
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([symbol, date])
+  @@index([symbol])
+  @@index([date(sort: Desc)])
+  @@map("stock_prices")
+}
+
+// User preferences and settings
+model UserPreferences {
+  id             String   @id @default(uuid())
+  userId         String   @unique @map("user_id")
+  language       String   @default("ko") // Preferred language
+  theme          String   @default("dark") // UI theme
+  notifications  Boolean  @default(true)
+
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("user_preferences")
+}
