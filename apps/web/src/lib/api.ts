@@ -11,12 +11,14 @@ import type {
 } from '@/types';
 
 const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3100';
-const API_BASE_URL = rawApiUrl.startsWith('http://') || rawApiUrl.startsWith('https://')
+const normalizedApiUrl = rawApiUrl.startsWith('http://') || rawApiUrl.startsWith('https://')
   ? rawApiUrl
   : `https://${rawApiUrl}`;
+const apiBase = normalizedApiUrl.replace(/\/+$/, '');
+const apiBaseUrl = apiBase.endsWith('/api') ? apiBase : `${apiBase}/api`;
 
 const api = axios.create({
-  baseURL: `${API_BASE_URL}/api`,
+  baseURL: apiBaseUrl,
   timeout: 30000,
 });
 
