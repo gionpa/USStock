@@ -1,7 +1,8 @@
 FROM node:20-alpine AS base
 
-# Install OpenSSL for Prisma
-RUN apk add --no-cache openssl
+# Install OpenSSL for Prisma and Claude CLI
+RUN apk add --no-cache openssl \
+  && npm install -g @anthropic-ai/claude-cli
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -33,6 +34,7 @@ FROM base AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV CLAUDE_CLI_PATH=/usr/local/bin/claude
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nestjs

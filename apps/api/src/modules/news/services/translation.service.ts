@@ -6,6 +6,9 @@ import { NewsPgRepository } from '../repositories/news-pg.repository';
 
 // Claude CLI default path
 const DEFAULT_CLAUDE_CLI_PATH = '/opt/homebrew/bin/claude';
+const DEFAULT_ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+const DEFAULT_ANTHROPIC_MODEL = 'claude-3-5-sonnet-20241022';
+const DEFAULT_ANTHROPIC_MAX_TOKENS = 800;
 
 // Helper function to run Claude CLI with proper environment
 function runClaudeCLI(cliPath: string, prompt: string): Promise<{ stdout: string; stderr: string }> {
@@ -76,7 +79,13 @@ interface TranslatedNews {
 export class TranslationService {
   private readonly logger = new Logger(TranslationService.name);
   private isClaudeAvailable = false;
+  private isClaudeCliAvailable = false;
+  private isAnthropicAvailable = false;
   private readonly claudeCliPath: string;
+  private readonly anthropicApiKey: string;
+  private readonly anthropicApiUrl: string;
+  private readonly anthropicModel: string;
+  private readonly anthropicMaxTokens: number;
 
   constructor(
     private readonly configService: ConfigService,
@@ -85,28 +94,48 @@ export class TranslationService {
   ) {
     this.claudeCliPath =
       this.configService.get<string>('CLAUDE_CLI_PATH') || DEFAULT_CLAUDE_CLI_PATH;
+    this.anthropicApiKey =
+      this.configService.get<string>('anthropic.apiKey') ||
+      this.configService.get<string>('ANTHROPIC_API_KEY') ||
+      '';
+    this.anthropicApiUrl =
+      this.configService.get<string>('ANTHROPIC_API_URL') ||
+      DEFAULT_ANTHROPIC_API_URL;
+    this.anthropicModel =
+      this.configService.get<string>('ANTHROPIC_MODEL') ||
+      DEFAULT_ANTHROPIC_MODEL;
+    this.anthropicMaxTokens =
+      Number(this.configService.get<string>('ANTHROPIC_MAX_TOKENS')) ||
+      DEFAULT_ANTHROPIC_MAX_TOKENS;
     this.checkClaudeAvailability();
   }
 
   private async checkClaudeAvailability(): Promise<void> {
+    this.isAnthropicAvailable = Boolean(this.anthropicApiKey);
+    if (this.isAnthropicAvailable) {
+      this.logger.log(`Anthropic API enabled with model ${this.anthropicModel}`);
+    }
+
     try {
       const fs = await import('fs');
       if (!this.claudeCliPath.includes('/')) {
-        this.isClaudeAvailable = true;
+        this.isClaudeCliAvailable = true;
         this.logger.log(`Claude CLI will resolve from PATH: ${this.claudeCliPath}`);
-        return;
-      }
-
-      if (fs.existsSync(this.claudeCliPath)) {
-        this.isClaudeAvailable = true;
+      } else if (fs.existsSync(this.claudeCliPath)) {
+        this.isClaudeCliAvailable = true;
         this.logger.log(`Claude CLI available at ${this.claudeCliPath}`);
       } else {
-        this.isClaudeAvailable = false;
-        this.logger.warn(`Claude CLI not found at ${this.claudeCliPath} - translation disabled`);
+        this.isClaudeCliAvailable = false;
+        this.logger.warn(`Claude CLI not found at ${this.claudeCliPath}`);
       }
     } catch {
-      this.isClaudeAvailable = false;
-      this.logger.warn('Claude CLI check failed - translation disabled');
+      this.isClaudeCliAvailable = false;
+      this.logger.warn('Claude CLI check failed');
+    }
+
+    this.isClaudeAvailable = this.isClaudeCliAvailable || this.isAnthropicAvailable;
+    if (!this.isClaudeAvailable) {
+      this.logger.warn('Translation disabled - no Claude CLI or Anthropic API key');
     }
   }
 
@@ -256,8 +285,8 @@ export class TranslationService {
       `요약: ${summary}`,
     ].join('\n');
 
-    const { stdout } = await runClaudeCLI(this.claudeCliPath, prompt);
-    const parsed = this.parseTaggedOutput(stdout);
+    const output = await this.runClaude(prompt);
+    const parsed = this.parseTaggedOutput(output);
     if (!parsed) {
       this.logger.warn('Combined translation output could not be parsed');
     }
@@ -272,8 +301,8 @@ export class TranslationService {
       `제목: ${title}`,
     ].join('\n');
 
-    const { stdout } = await runClaudeCLI(this.claudeCliPath, prompt);
-    const translatedTitle = stdout.trim();
+    const output = await this.runClaude(prompt);
+    const translatedTitle = output.trim();
     if (!translatedTitle || translatedTitle.toLowerCase().includes('error')) {
       this.logger.warn('Title translation returned empty');
       return null;
@@ -290,8 +319,8 @@ export class TranslationService {
       `요약: ${summary}`,
     ].join('\n');
 
-    const { stdout } = await runClaudeCLI(this.claudeCliPath, prompt);
-    const summarized = stdout.trim();
+    const output = await this.runClaude(prompt);
+    const summarized = output.trim();
     if (!summarized || summarized.toLowerCase().includes('error')) {
       this.logger.warn('Summary translation returned empty');
       return '';
@@ -336,5 +365,65 @@ export class TranslationService {
           : String(error);
 
     return /token limit|max tokens|context length|context window/i.test(message);
+  }
+
+  private async runClaude(prompt: string): Promise<string> {
+    if (this.isClaudeCliAvailable) {
+      try {
+        const { stdout } = await runClaudeCLI(this.claudeCliPath, prompt);
+        if (stdout.trim()) {
+          return stdout;
+        }
+        this.logger.warn('Claude CLI returned empty output, falling back to API');
+      } catch (error: any) {
+        this.logger.warn(`Claude CLI failed, falling back to API: ${error?.message}`);
+      }
+    }
+
+    if (this.isAnthropicAvailable) {
+      return this.runClaudeApi(prompt);
+    }
+
+    throw new Error('No translation backend available');
+  }
+
+  private async runClaudeApi(prompt: string): Promise<string> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
+
+    try {
+      const response = await fetch(this.anthropicApiUrl, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': this.anthropicApiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: this.anthropicModel,
+          max_tokens: this.anthropicMaxTokens,
+          temperature: 0.2,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Anthropic API error ${response.status}: ${errorText.substring(0, 200)}`);
+      }
+
+      const data = (await response.json()) as {
+        content?: Array<{ type?: string; text?: string }>;
+      };
+      const text = data?.content?.map((item) => item?.text || '').join('').trim();
+      if (!text) {
+        throw new Error('Anthropic API returned empty response');
+      }
+
+      return text;
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 }
