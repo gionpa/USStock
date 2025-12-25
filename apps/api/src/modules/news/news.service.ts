@@ -297,4 +297,38 @@ export class NewsService {
 
     return { queued: untranslated.length };
   }
+
+  /**
+   * Force re-summarize latest news for a symbol (CLI-only translation expected)
+   */
+  async forceResummarizeLatestSymbol(
+    symbol: string,
+  ): Promise<{ processed: number; newsId?: string; reason?: string }> {
+    const target = symbol.toUpperCase();
+
+    if (!this.isTranslationTarget(target)) {
+      return { processed: 0, reason: `Symbol ${target} is not enabled for translation` };
+    }
+
+    if (!this.translationService.isAvailable()) {
+      return { processed: 0, reason: 'Claude CLI unavailable' };
+    }
+
+    const latest = (await this.newsPgRepository.getNewsBySymbol(target, 1))[0];
+    if (!latest) {
+      return { processed: 0, reason: 'No news found for symbol' };
+    }
+
+    const result = await this.translationService.translateAndSave(
+      latest.id,
+      latest.title,
+      latest.summary,
+    );
+
+    if (!result) {
+      return { processed: 0, newsId: latest.id, reason: 'Translation failed' };
+    }
+
+    return { processed: 1, newsId: latest.id };
+  }
 }

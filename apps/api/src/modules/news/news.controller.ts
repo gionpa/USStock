@@ -59,4 +59,12 @@ export class NewsController {
   async triggerTranslate(): Promise<{ queued: number }> {
     return this.newsService.triggerTranslation();
   }
+
+  /**
+   * Force re-summarize latest RGTI news (Claude CLI only)
+   */
+  @Post('translate/rgti/latest')
+  async forceTranslateLatestRgtI(): Promise<{ processed: number; newsId?: string; reason?: string }> {
+    return this.newsService.forceResummarizeLatestSymbol('RGTI');
+  }
 }
