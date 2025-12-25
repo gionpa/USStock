@@ -33,6 +33,7 @@ export class NewsRepository implements OnModuleInit {
       host: string;
       port: number;
       password?: string;
+      tls?: Record<string, unknown>;
     }>('redis');
 
     this.redisEnabled = Boolean(redisConfig?.enabled);
@@ -45,6 +46,7 @@ export class NewsRepository implements OnModuleInit {
       host: redisConfig?.host || 'localhost',
       port: redisConfig?.port ?? 6379,
       password: redisConfig?.password,
+      tls: redisConfig?.tls,
       maxRetriesPerRequest: null,
       enableOfflineQueue: false,
       connectTimeout: 5000,

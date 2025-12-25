@@ -19,6 +19,7 @@ export class HealthController {
         host: redisConfig?.host || 'localhost',
         port: redisConfig?.port || 6379,
         password: redisConfig?.password,
+        tls: redisConfig?.tls,
         maxRetriesPerRequest: 1,
         enableOfflineQueue: false,
         connectTimeout: 5000,

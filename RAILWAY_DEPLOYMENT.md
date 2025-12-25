@@ -97,6 +97,7 @@ PORT=3000
 | `DATABASE_URL` | Y | PostgreSQL 연결 URL | `${{Postgres.DATABASE_URL}}` |
 | `REDIS_URL` | Y | Redis 연결 URL | `${{Redis.REDIS_URL}}` |
 | `REDIS_ENABLED` | N | Redis 사용 여부 (미설정 시 REDIS_URL 기준) | `true` |
+| `REDIS_TLS` | N | Redis TLS 사용 여부 (rediss:// 또는 강제 TLS) | `false` |
 | `PORT` | N | 서버 포트 (기본: 3001) | `3001` |
 | `NODE_ENV` | N | 환경 (기본: production) | `production` |
 | `CORS_ORIGIN` | N | CORS 허용 도메인 | `https://web.up.railway.app` |

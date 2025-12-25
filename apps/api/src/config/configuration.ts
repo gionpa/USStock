@@ -3,10 +3,12 @@ function parseRedisUrl(url: string | undefined) {
   if (!url) return null;
   try {
     const parsed = new URL(url);
+    const useTls = parsed.protocol === 'rediss:';
     return {
       host: parsed.hostname,
       port: parseInt(parsed.port || '6379', 10),
       password: parsed.password || undefined,
+      tls: useTls ? {} : undefined,
     };
   } catch {
     return null;
@@ -23,6 +25,10 @@ export default () => {
   const redisEnabled = redisEnabledEnv != null
     ? !['false', '0', 'off', 'no'].includes(redisEnabledEnv.toLowerCase())
     : redisEnvConfigured;
+  const redisTlsEnv = process.env.REDIS_TLS;
+  const redisTls = redisTlsEnv != null
+    ? !['false', '0', 'off', 'no'].includes(redisTlsEnv.toLowerCase())
+    : false;
 
   return {
     port: parseInt(process.env.PORT || '3100', 10),
@@ -56,6 +62,7 @@ export default () => {
       host: redisUrl?.host || process.env.REDIS_HOST || 'localhost',
       port: redisUrl?.port || parseInt(process.env.REDIS_PORT || '6379', 10),
       password: redisUrl?.password || process.env.REDIS_PASSWORD || undefined,
+      tls: redisUrl?.tls || (redisTls ? {} : undefined),
     },
 
     // Vector DB configuration (Pinecone)

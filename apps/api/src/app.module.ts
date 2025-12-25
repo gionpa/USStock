@@ -29,6 +29,7 @@ import configuration from './config/configuration';
           host: string;
           port: number;
           password?: string;
+          tls?: Record<string, unknown>;
         }>('redis');
         const logger = new Logger('BullModule');
         if (!redisConfig?.enabled) {
@@ -38,6 +39,7 @@ import configuration from './config/configuration';
           host: redisConfig?.host || 'localhost',
           port: redisConfig?.port ?? 6379,
           password: redisConfig?.password,
+          tls: redisConfig?.tls,
           maxRetriesPerRequest: null,
           enableReadyCheck: false,
           lazyConnect: true,
@@ -50,7 +52,8 @@ import configuration from './config/configuration';
           createClient: () => {
             const client = new Redis(redisOptions);
             client.on('error', (err) => {
-              logger.warn(`Bull Redis client error: ${err.message}`);
+              const message = err?.message || String(err);
+              logger.warn(`Bull Redis client error: ${message}`);
             });
             return client;
           },
