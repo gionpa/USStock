@@ -15,10 +15,30 @@ async function proxyRequest(
 ): Promise<NextResponse> {
   const path = params.path?.join('/') ?? '';
   const upstreamUrl = `${apiBase}/api/${path}${req.nextUrl.search}`;
+  const requestOrigin = `${req.nextUrl.protocol}//${req.nextUrl.host}`;
+  const upstreamOrigin = new URL(apiBase).origin;
 
-  const headers = new Headers(req.headers);
-  headers.delete('host');
-  headers.delete('connection');
+  if (upstreamOrigin === requestOrigin) {
+    return NextResponse.json(
+      { error: 'API_URL points to the web origin, causing a proxy loop.' },
+      { status: 502 },
+    );
+  }
+
+  const headers = new Headers();
+  const keepHeaders = [
+    'accept',
+    'authorization',
+    'content-type',
+    'cookie',
+    'user-agent',
+  ];
+  for (const key of keepHeaders) {
+    const value = req.headers.get(key);
+    if (value) {
+      headers.set(key, value);
+    }
+  }
 
   const body = req.method === 'GET' || req.method === 'HEAD'
     ? undefined
