@@ -14,10 +14,16 @@ async function bootstrap() {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+  const allowAnyOrigin = corsOrigin === '*';
 
   app.enableCors({
-    origin: corsOrigin === '*' ? '*' : originList,
-    credentials: corsOrigin !== '*',
+    origin: (origin, callback) => {
+      if (!origin || allowAnyOrigin) {
+        return callback(null, true);
+      }
+      return callback(null, originList.includes(origin));
+    },
+    credentials: true,
   });
 
   app.useGlobalPipes(
