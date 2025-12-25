@@ -8,10 +8,10 @@ FROM base AS deps
 WORKDIR /app
 
 # Copy package files from apps/api
-COPY apps/api/package*.json ./
+COPY package*.json ./
 
 # Copy prisma schema for generation
-COPY apps/api/prisma/ ./prisma/
+COPY prisma/ ./prisma/
 
 RUN npm install
 
@@ -24,7 +24,7 @@ WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/node_modules/.prisma ./node_modules/.prisma
-COPY apps/api/ .
+COPY . .
 
 RUN npm run build
 
