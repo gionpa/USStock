@@ -28,6 +28,7 @@
     "@nestjs/platform-socket.io": "^10.3.0",
     "@nestjs/schedule": "^4.0.0",
     "@nestjs/websockets": "^10.3.0",
+    "@prisma/adapter-pg": "^6.0.0",
     "@prisma/client": "^6.0.0",
     "axios": "^1.6.2",
     "bull": "^4.12.0",
