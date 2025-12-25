@@ -168,9 +168,9 @@ export class NewsService {
   }
 
   /**
-   * Scheduled job: Fetch and store market news every 5 minutes
+   * Scheduled job: Fetch and store market news every hour
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
+  @Cron(CronExpression.EVERY_HOUR)
   async scheduledNewsFetch() {
     this.logger.log('Running scheduled news fetch...');
 
