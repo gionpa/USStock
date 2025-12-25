@@ -4,17 +4,15 @@ FROM node:20-alpine AS base
 FROM base AS deps
 WORKDIR /app
 
-COPY apps/web/package*.json ./apps/web/
-
-WORKDIR /app/apps/web
-RUN npm install
+COPY package*.json ./
+RUN npm ci
 
 # Build the application
 FROM base AS builder
-WORKDIR /app/apps/web
+WORKDIR /app
 
-COPY --from=deps /app/apps/web/node_modules ./node_modules
-COPY apps/web/ ./
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
 
 # Set build-time environment variables
 ARG NEXT_PUBLIC_API_URL
@@ -24,22 +22,22 @@ RUN npm run build
 
 # Production image
 FROM base AS runner
-WORKDIR /app/apps/web
+WORKDIR /app
 
 ENV NODE_ENV=production
 
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-COPY --from=builder /app/apps/web/public ./public
+COPY --from=builder /app/public ./public
 
 # Set the correct permission for prerender cache
 RUN mkdir .next
 RUN chown nextjs:nodejs .next
 
 # Automatically leverage output traces to reduce image size
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
 USER nextjs
 
