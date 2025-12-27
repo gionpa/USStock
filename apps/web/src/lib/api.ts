@@ -10,8 +10,20 @@ import type {
   FinancialsResponse,
 } from '@/types';
 
+// In production (Railway), use NEXT_PUBLIC_API_URL directly
+// In development, use /api which gets rewritten to localhost:3100
+const getBaseUrl = () => {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (apiUrl) {
+    // Ensure proper URL format with /api suffix
+    const normalized = apiUrl.startsWith('http') ? apiUrl : `https://${apiUrl}`;
+    return normalized.endsWith('/api') ? normalized : `${normalized}/api`;
+  }
+  return '/api';
+};
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: getBaseUrl(),
   timeout: 30000,
 });
 

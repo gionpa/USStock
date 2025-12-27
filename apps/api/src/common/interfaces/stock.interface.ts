@@ -1,3 +1,12 @@
+export type MarketSession = 'pre-market' | 'regular' | 'after-hours' | 'closed';
+
+export interface ExtendedHoursData {
+  price: number;
+  change: number;
+  changePercent: number;
+  timestamp: Date;
+}
+
 export interface StockQuote {
   symbol: string;
   price: number;
@@ -9,6 +18,9 @@ export interface StockQuote {
   high?: number;
   low?: number;
   previousClose?: number;
+  marketSession?: MarketSession;
+  preMarket?: ExtendedHoursData;
+  afterHours?: ExtendedHoursData;
 }
 
 export interface OrderBook {

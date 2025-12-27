@@ -93,13 +93,23 @@ export class TechnicalIndicators {
     slowPeriod: number = 26,
     signalPeriod: number = 9,
   ): { macd: number; signal: number; histogram: number } {
-    const fastEMA = this.calculateEMA(prices, fastPeriod);
-    const slowEMA = this.calculateEMA(prices, slowPeriod);
-    const macd = fastEMA - slowEMA;
+    if (prices.length < slowPeriod + signalPeriod) {
+      return { macd: 0, signal: 0, histogram: 0 };
+    }
 
-    // Calculate signal line (EMA of MACD values)
-    // For simplicity, we'll approximate the signal line
-    const signal = macd * 0.8; // Simplified
+    // Calculate MACD line for each point (EMA12 - EMA26)
+    const macdLine: number[] = [];
+
+    for (let i = slowPeriod; i <= prices.length; i++) {
+      const slice = prices.slice(0, i);
+      const fastEMA = this.calculateEMA(slice, fastPeriod);
+      const slowEMA = this.calculateEMA(slice, slowPeriod);
+      macdLine.push(fastEMA - slowEMA);
+    }
+
+    // Calculate signal line (9-period EMA of MACD line)
+    const signal = this.calculateEMA(macdLine, signalPeriod);
+    const macd = macdLine[macdLine.length - 1];
     const histogram = macd - signal;
 
     return { macd, signal, histogram };
@@ -181,10 +191,17 @@ export class TechnicalIndicators {
     const volumeAnalysis = this.analyzeVolume(volumes);
 
     // Determine trend
+    // Use a more nuanced approach: primary signal from price vs SMA20
+    // Secondary confirmation from SMA20 vs SMA50
     let trend: 'bullish' | 'bearish' | 'neutral' = 'neutral';
-    if (currentPrice > sma20 && sma20 > sma50) {
+    const priceAboveSma20 = currentPrice > sma20;
+    const sma20AboveSma50 = sma20 > sma50;
+
+    if (priceAboveSma20) {
+      // Price above SMA20 indicates short-term bullish
       trend = 'bullish';
-    } else if (currentPrice < sma20 && sma20 < sma50) {
+    } else {
+      // Price below SMA20 indicates short-term bearish
       trend = 'bearish';
     }
 

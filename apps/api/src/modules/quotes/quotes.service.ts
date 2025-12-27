@@ -9,6 +9,7 @@ export interface QuoteUpdate {
   volume?: number;
   timestamp: Date;
   source: 'polygon' | 'finnhub';
+  isExtendedHours?: boolean;
 }
 
 export interface OrderBookUpdate {
@@ -37,7 +38,7 @@ export class QuotesService implements OnModuleInit {
   }
 
   private setupEventListeners() {
-    // Listen to Polygon trades
+    // Listen to Polygon trades (including extended hours)
     this.polygonQuotes.on('trade', (trade) => {
       this.handleTradeUpdate({
         symbol: trade.symbol,
@@ -45,6 +46,7 @@ export class QuotesService implements OnModuleInit {
         volume: trade.size,
         timestamp: trade.timestamp,
         source: 'polygon',
+        isExtendedHours: trade.isExtendedHours || false,
       });
     });
 
@@ -134,6 +136,14 @@ export class QuotesService implements OnModuleInit {
     symbol: string,
     range: string = '1m',
   ): Promise<StockPriceHistoryPoint[]> {
+    // Try Polygon first (better data quality)
+    const polygonData = await this.polygonQuotes.getAggregates(symbol, range);
+    if (polygonData && polygonData.length > 0) {
+      this.logger.debug(`Got ${polygonData.length} points from Polygon for ${symbol}`);
+      return polygonData;
+    }
+
+    // Fallback to Finnhub candles
     const { resolution, from, to } = this.getHistoryRange(range);
     const candles = await this.finnhubQuotes.getCandles(
       symbol,
@@ -143,30 +153,28 @@ export class QuotesService implements OnModuleInit {
     );
 
     if (
-      !candles ||
-      candles.s !== 'ok' ||
-      !Array.isArray(candles.t) ||
-      !Array.isArray(candles.c)
+      candles &&
+      candles.s === 'ok' &&
+      Array.isArray(candles.t) &&
+      Array.isArray(candles.c)
     ) {
-      this.logger.warn(`Using fallback history for ${symbol} (${range})`);
-      const quote = await this.getQuote(symbol);
-      const basePrice = quote?.price ?? 100;
-      return this.buildFallbackHistory(symbol, range, basePrice);
-    }
-
-    const points: StockPriceHistoryPoint[] = [];
-    for (let index = 0; index < candles.t.length; index += 1) {
-      const timestamp = candles.t[index];
-      const price = candles.c[index];
-      if (typeof timestamp === 'number' && typeof price === 'number') {
-        points.push({
-          timestamp: timestamp * 1000,
-          price,
-        });
+      const points: StockPriceHistoryPoint[] = [];
+      for (let index = 0; index < candles.t.length; index += 1) {
+        const timestamp = candles.t[index];
+        const price = candles.c[index];
+        if (typeof timestamp === 'number' && typeof price === 'number') {
+          points.push({
+            timestamp: timestamp * 1000,
+            price,
+          });
+        }
       }
+      return points;
     }
 
-    return points;
+    // Return empty array instead of fake data
+    this.logger.warn(`No history data available for ${symbol} (${range})`);
+    return [];
   }
 
   private getHistoryRange(range: string): {

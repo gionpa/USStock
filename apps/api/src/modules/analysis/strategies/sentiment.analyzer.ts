@@ -88,20 +88,42 @@ export class SentimentAnalyzer {
   }
 
   private calculateTextSentiment(text: string): number {
-    let score = 0;
-    const words = text.split(/\s+/);
+    let positiveCount = 0;
+    let negativeCount = 0;
+    const words = text.toLowerCase().split(/\s+/);
+    const matchedKeywords = new Set<string>(); // Prevent double counting
 
     for (const word of words) {
-      if (this.positiveKeywords.some((kw) => word.includes(kw))) {
-        score += 0.1;
+      // Check positive keywords (use word boundaries for accuracy)
+      for (const kw of this.positiveKeywords) {
+        if (word.includes(kw) && !matchedKeywords.has(word)) {
+          positiveCount++;
+          matchedKeywords.add(word);
+          break; // Only count once per word
+        }
       }
-      if (this.negativeKeywords.some((kw) => word.includes(kw))) {
-        score -= 0.1;
+
+      // Check negative keywords (mutually exclusive with positive)
+      if (!matchedKeywords.has(word)) {
+        for (const kw of this.negativeKeywords) {
+          if (word.includes(kw)) {
+            negativeCount++;
+            matchedKeywords.add(word);
+            break;
+          }
+        }
       }
     }
 
-    // Clamp between -1 and 1
-    return Math.max(-1, Math.min(1, score));
+    // Calculate score based on ratio of positive to negative
+    const totalMatches = positiveCount + negativeCount;
+    if (totalMatches === 0) return 0;
+
+    // Score = (positive - negative) / total, weighted by match density
+    const rawScore = (positiveCount - negativeCount) / totalMatches;
+    const densityFactor = Math.min(totalMatches / 10, 1); // More matches = more confident
+
+    return Math.max(-1, Math.min(1, rawScore * densityFactor));
   }
 
   private calculateRiskScore(text: string): number {
