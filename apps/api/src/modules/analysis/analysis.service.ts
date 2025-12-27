@@ -364,23 +364,41 @@ export class AnalysisService {
     // Normalize based on max possible score (~100)
     const strength = Math.min(Math.round(Math.abs(netScore) * 1.2), 100);
 
-    // Calculate target price and stop loss based on volatility
-    const volatilityMultiplier = technical.signals.volatility === 'high' ? 1.5 :
-                                 technical.signals.volatility === 'low' ? 0.7 : 1.0;
+    // Calculate target price and stop loss based on ATR (Average True Range)
+    // ATR provides a realistic measure of daily price movement
+    const atr = technical.indicators.atr;
+    const atrPercent = atr / currentPrice; // ATR as percentage of price
 
-    const targetPrice =
-      signalType === 'buy'
-        ? currentPrice * (1 + (strength / 400) * volatilityMultiplier)
-        : signalType === 'sell'
-          ? currentPrice * (1 - (strength / 400) * volatilityMultiplier)
-          : undefined;
+    // Target: 2-3x ATR depending on signal strength (realistic short-term target)
+    // Stop loss: 1.5-2x ATR (standard risk management)
+    const strengthFactor = 0.5 + (strength / 100) * 0.5; // 0.5 to 1.0 based on strength
 
-    const stopLoss =
-      signalType === 'buy'
-        ? currentPrice * (1 - 0.05 * volatilityMultiplier) // 5% base, adjusted for volatility
-        : signalType === 'sell'
-          ? currentPrice * (1 + 0.05 * volatilityMultiplier)
-          : undefined;
+    let targetPrice: number | undefined;
+    let stopLoss: number | undefined;
+
+    if (signalType === 'buy') {
+      // BUY: target above current price, stop below
+      const targetMultiplier = 2.5 * strengthFactor; // 1.25x to 2.5x ATR
+      const stopMultiplier = 1.5;
+      targetPrice = currentPrice + (atr * targetMultiplier);
+      stopLoss = currentPrice - (atr * stopMultiplier);
+    } else if (signalType === 'sell') {
+      // SELL: target below current price, stop above
+      const targetMultiplier = 2.5 * strengthFactor;
+      const stopMultiplier = 1.5;
+      targetPrice = currentPrice - (atr * targetMultiplier);
+      stopLoss = currentPrice + (atr * stopMultiplier);
+    }
+
+    // Ensure stop loss doesn't exceed reasonable bounds (max 10% from current)
+    if (stopLoss !== undefined) {
+      const maxStopDistance = currentPrice * 0.10;
+      if (signalType === 'buy' && currentPrice - stopLoss > maxStopDistance) {
+        stopLoss = currentPrice - maxStopDistance;
+      } else if (signalType === 'sell' && stopLoss - currentPrice > maxStopDistance) {
+        stopLoss = currentPrice + maxStopDistance;
+      }
+    }
 
     return {
       id: `signal_${symbol}_${Date.now()}`,
